@@ -1,0 +1,82 @@
+body {
+  font-family: system-ui, Segoe UI, Roboto, Arial;
+  margin: 18px;
+  max-width: 1100px;
+}
+
+header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+#canvas {
+  border: 1px solid #ddd;
+  margin-top: 8px;
+  cursor: crosshair;
+  max-width: 100%;
+}
+
+.controls {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+textarea {
+  width: 100%;
+  height: 120px;
+  margin-top: 8px;
+  font-family: monospace;
+}
+
+button, select {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  background: #fff;
+}
+
+#progress {
+  font-size: 0.95rem;
+  color: #444;
+  margin-top: 6px;
+  white-space: pre-wrap;
+}
+
+#progressBar {
+  width: 260px;
+  height: 12px;
+  background: #eee;
+  border-radius: 6px;
+  overflow: hidden;
+  display: none;
+  border: 1px solid #ddd;
+}
+
+#progressFill {
+  height: 100%;
+  width: 0;
+  background: #4caf50;
+  transition: width 0.2s;
+}
+
+.note {
+  font-size: 0.9rem;
+  color: #666;
+  margin-top: 6px;
+}
+
+.small {
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.center-button {
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+}

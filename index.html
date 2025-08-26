@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>TrOCR / Donut — OCR demo (Transformers.js)</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h2 style="margin:0">OCR demo — single-line (TrOCR) & multi-line (Donut)</h2>
+    <div class="note">Tip: For full screenshots choose a Donut model (Document OCR). For single lines, crop and use TrOCR. Donut models are larger and may take longer to download.</div>
+  </header>
+
+  <div class="controls">
+    <label>
+      Model:
+      <select id="modelSelect" style="min-width:360px">
+        <optgroup label="Single-line (TrOCR)">
+          <option value="Xenova/trocr-small-handwritten">Xenova/trocr-small-handwritten (small)</option>
+          <option value="Xenova/trocr-base-printed">Xenova/trocr-base-printed (single-line)</option>
+        </optgroup>
+        <optgroup label="Document / Multi-line (Donut)">
+          <option value="Xenova/donut-base-finetuned-docvqa">Xenova/donut-base-finetuned-docvqa (DocVQA)</option>
+          <option value="Xenova/donut-base-finetuned-cord-v2">Xenova/donut-base-finetuned-cord-v2 (receipts / forms)</option>
+        </optgroup>
+      </select>
+    </label>
+
+    <button id="loadBtn">Load model</button>
+
+    <div id="progress" class="small">Model not loaded</div>
+    <div id="progressBar"><div id="progressFill"></div></div>
+  </div>
+
+  <div class="controls">
+    <input id="imageInput" type="file" accept="image/*">
+    <button id="sampleBtn">Load sample screenshot</button>
+    <button id="removeBtn" disabled>Remove image</button>
+    <button id="runOcrBtn" disabled>Run OCR</button>
+  </div>
+
+  <canvas id="canvas" width="900" height="300"></canvas>
+
+  <label style="display:block;margin-top:8px">OCR result (raw JSON):</label>
+  <textarea id="rawOut" readonly></textarea>
+
+  <label style="display:block;margin-top:8px">Decoded text:</label>
+  <textarea id="textOut" readonly></textarea>
+
+  <div class="center-button">
+    <button id="copyTextBtn">Copy Text</button>
+  </div>
+
+  
+</body>
+</html>
