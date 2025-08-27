@@ -36,6 +36,9 @@ This project demonstrates a privacy-focused Optical Character Recognition (OCR) 
 *   **Transformers.js (@xenova/transformers):**  A JavaScript library for running transformer models in the browser.  [https://xenova.io/transformers/](https://xenova.io/transformers/)
 *   **Web Workers:** Used to offload the computationally intensive OCR tasks from the main thread, ensuring a responsive user interface.
 
+## Demo
+https://harisnae.github.io/OfflineWebOCR/
+
 ## Getting Started
 
 1.  **Clone the Repository:**
