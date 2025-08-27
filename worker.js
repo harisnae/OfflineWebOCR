@@ -1,26 +1,29 @@
-// worker.js  (classic worker version — use with Worker(..., { type: 'classic' }))
+// worker.js  (module worker - must be loaded with Worker(..., { type: 'module' }))
 
-// Load the UMD build into the worker global scope
-importScripts('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js');
+// Dynamically import the Transformers.js ESM entry from the CDN and handle multiple export shapes.
+// Using dynamic import ensures we never call importScripts on an ESM bundle.
+const transformersModule = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
 
-// The UMD bundle exposes a global `transformers` object (on self/globalThis)
-const transformers = globalThis.transformers || self.transformers;
-if (!transformers) {
-  self.postMessage({ type: 'error', message: 'Failed to load transformers library in worker.' });
-  // bail out — nothing else will work
+// Try several export shapes so code works across CDN variations:
+const pipeline = transformersModule.pipeline ?? transformersModule.default?.pipeline ?? (transformersModule.transformers && transformersModule.transformers.pipeline);
+const env = transformersModule.env ?? transformersModule.default?.env ?? (transformersModule.transformers && transformersModule.transformers.env);
+
+if (!pipeline) {
+  self.postMessage({ type: 'error', message: 'Failed to load Transformers.js pipeline export.' });
+  throw new Error('pipeline export missing from transformers module');
 }
 
-// Extract pipeline and env from the global object
-const { pipeline, env } = transformers;
+// Force models to be fetched from the Hugging Face Hub (not from /models on your site)
+if (env) {
+  env.localModelPath = null; // disable local /models lookups
+  env.remoteModelsPath = 'https://huggingface.co/'; // ensure remote files come from Hugging Face Hub
+}
 
-// Configure where models are fetched from — use Hugging Face Hub instead of local /models
-env.localModelPath = null;
-env.remoteModelsPath = 'https://huggingface.co/';
-
+// State
 let pipe = null;
 let pipelineTask = 'image-to-text';
 
-// Function to load the model
+// Load model (called from main thread)
 async function loadModel(modelId) {
   pipelineTask = modelId.toLowerCase().includes('donut') ? 'document-question-answering' : 'image-to-text';
   try {
@@ -38,7 +41,7 @@ async function loadModel(modelId) {
   }
 }
 
-// Function to perform OCR
+// Run OCR / inference (called from main thread)
 async function performOcr(inputDataUrl) {
   if (!pipe) {
     self.postMessage({ type: 'error', message: 'Load model first' });
@@ -70,15 +73,13 @@ async function performOcr(inputDataUrl) {
     if ((err?.message || '').includes('Unsupported input type: object')) {
       msg += '\n\nSuggestion: pass a data URL string, a <canvas> element, or a URL string to the pipeline — not a raw Image DOM object.';
     }
-    // Worker cannot access DOM; keep messaging the error to main thread
     self.postMessage({ type: 'error', message: msg });
   }
 }
 
-// Listen for messages from the main script
-self.onmessage = function(event) {
+// Receive commands from main thread
+self.onmessage = (event) => {
   const { type, modelId, inputDataUrl } = event.data;
-
   if (type === 'loadModel') {
     loadModel(modelId);
   } else if (type === 'runOcr') {
