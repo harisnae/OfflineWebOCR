@@ -1,0 +1,348 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>TrOCR / Donut — OCR demo (Transformers.js)</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:18px;max-width:1100px}
+  header{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  #canvas{border:1px solid #ddd;margin-top:8px;cursor:crosshair;max-width:100%}
+  .controls{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  textarea{width:100%;height:120px;margin-top:8px;font-family:monospace}
+  button, select{padding:8px 10px;border-radius:6px;border:1px solid #ccc;background:#fff}
+  #progress{font-size:0.95rem;color:#444;margin-top:6px;white-space:pre-wrap}
+  #progressBar{width:260px;height:12px;background:#eee;border-radius:6px;overflow:hidden;display:none;border:1px solid #ddd}
+  #progressFill{height:100%;width:0;background:#4caf50;transition:width 0.2s}
+  .note{font-size:0.9rem;color:#666;margin-top:6px}
+  .small{font-size:0.85rem;color:#888}
+  .center-button {display: flex; justify-content: center; margin-top: 8px;}
+</style>
+</head>
+<body>
+  <header>
+    <h2 style="margin:0">OCR demo — single-line (TrOCR) & multi-line (Donut)</h2>
+    <div class="note">Tip: For full screenshots choose a Donut model (Document OCR). For single lines, crop and use TrOCR. Donut models are larger and may take longer to download.</div>
+  </header>
+
+  <div class="controls">
+    <label>
+      Model:
+      <select id="modelSelect" style="min-width:360px">
+        <optgroup label="Single-line (TrOCR)">
+          <option value="Xenova/trocr-small-handwritten">Xenova/trocr-small-handwritten (small)</option>
+          <option value="Xenova/trocr-base-printed">Xenova/trocr-base-printed (single-line)</option>
+        </optgroup>
+        <optgroup label="Document / Multi-line (Donut)">
+          <option value="Xenova/donut-base-finetuned-docvqa">Xenova/donut-base-finetuned-docvqa (DocVQA)</option>
+          <option value="Xenova/donut-base-finetuned-cord-v2">Xenova/donut-base-finetuned-cord-v2 (receipts / forms)</option>
+        </optgroup>
+      </select>
+    </label>
+
+    <button id="loadBtn">Load model</button>
+
+    <div id="progress" class="small">Model not loaded</div>
+    <div id="progressBar"><div id="progressFill"></div></div>
+  </div>
+
+  <div class="controls">
+    <input id="imageInput" type="file" accept="image/*">
+    <button id="sampleBtn">Load sample screenshot</button>
+    <button id="removeBtn" disabled>Remove image</button>
+    <button id="recognizeBtn" disabled>Recognize</button>
+  </div>
+
+  <canvas id="canvas" width="900" height="300"></canvas>
+
+  <label style="display:block;margin-top:8px">OCR result (raw JSON):</label>
+  <textarea id="rawOut" readonly></textarea>
+
+  <label style="display:block;margin-top:8px">Decoded text:</label>
+  <textarea id="textOut" readonly></textarea>
+
+  <div class="center-button">
+    <button id="copyTextBtn">Copy Text</button>
+  </div>
+
+<script type="module">
+import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js';
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const modelSelect = document.getElementById('modelSelect');
+const loadBtn = document.getElementById('loadBtn');
+const progress = document.getElementById('progress');
+const progressBar = document.getElementById('progressBar');
+const progressFill = document.getElementById('progressFill');
+const imageInput = document.getElementById('imageInput');
+const sampleBtn = document.getElementById('sampleBtn');
+const removeBtn = document.getElementById('removeBtn');
+const recognizeBtn = document.getElementById('recognizeBtn');
+const rawOut = document.getElementById('rawOut');
+const textOut = document.getElementById('textOut');
+const copyTextBtn = document.getElementById('copyTextBtn');
+
+let pipe = null;
+let pipelineTask = 'image-to-text';
+let currentDataUrl = null;
+let imgObj = null;
+
+// Crop variables (user draws rectangle on canvas)
+let cropping = false;
+let cropStart = null;
+let cropEnd = null;
+
+function clearCanvasBackground() {
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+}
+
+function drawImageOnCanvas() {
+  if (!imgObj) { clearCanvasBackground(); return; }
+  // draw the image fit to canvas
+  ctx.drawImage(imgObj, 0, 0, canvas.width, canvas.height);
+
+  // draw crop rectangle
+  if (cropStart && cropEnd) {
+    const [x,y,w,h] = getCropRect();
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,0,0,0.9)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6,4]);
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
+}
+
+function getCropRect() {
+  if (!cropStart || !cropEnd) return null;
+  const x = Math.min(cropStart.x, cropEnd.x);
+  const y = Math.min(cropStart.y, cropEnd.y);
+  const w = Math.abs(cropStart.x - cropEnd.x);
+  const h = Math.abs(cropStart.y - cropEnd.y);
+  return [x,y,w,h];
+}
+
+// Mouse handlers for cropping
+canvas.addEventListener('mousedown', (e) => {
+  if (!imgObj) return;
+  cropping = true;
+  cropStart = { x: e.offsetX, y: e.offsetY };
+  cropEnd = null;
+});
+canvas.addEventListener('mousemove', (e) => {
+  if (!cropping) return;
+  cropEnd = { x: e.offsetX, y: e.offsetY };
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawImageOnCanvas();
+});
+canvas.addEventListener('mouseup', (e) => {
+  if (!imgObj) return;
+  cropping = false;
+  cropEnd = { x: e.offsetX, y: e.offsetY };
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawImageOnCanvas();
+});
+
+// File input: read as data URL & display scaled to fit
+imageInput.addEventListener('change', (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    currentDataUrl = reader.result;
+    imgObj = new Image();
+    imgObj.onload = () => {
+      // fit image into canvas (keep aspect ratio)
+      const maxW = 1000;
+      const maxH = 600;
+      let w = imgObj.naturalWidth;
+      let h = imgObj.naturalHeight;
+      const ratio = Math.min(maxW / w, maxH / h, 1);
+      canvas.width = Math.round(w * ratio);
+      canvas.height = Math.round(h * ratio);
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      drawImageOnCanvas();
+      recognizeBtn.disabled = !pipe;
+      removeBtn.disabled = false;
+      // IMPORTANT: keep original data URL (currentDataUrl) for passing to pipeline
+    };
+    imgObj.crossOrigin = 'anonymous';
+    imgObj.src = currentDataUrl;
+  };
+  reader.readAsDataURL(f);
+});
+
+// Sample screenshot (use a multi-line sample)
+sampleBtn.addEventListener('click', () => {
+  // small sample screenshot (replaceable)
+  const url = 'https://raw.githubusercontent.com/Xenova/transformers.js/main/assets/invoice.png'; // documents sample
+  imgObj = new Image();
+  imgObj.crossOrigin = 'anonymous';
+  imgObj.onload = () => {
+    currentDataUrl = url;
+    // fit size
+    const maxW = 1000, maxH = 600;
+    let w = imgObj.naturalWidth, h = imgObj.naturalHeight;
+    const ratio = Math.min(maxW / w, maxH / h, 1);
+    canvas.width = Math.round(w * ratio);
+    canvas.height = Math.round(h * ratio);
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    drawImageOnCanvas();
+    recognizeBtn.disabled = !pipe;
+    removeBtn.disabled = false;
+  };
+  imgObj.src = url;
+});
+
+// remove image
+removeBtn.addEventListener('click', () => {
+  currentDataUrl = null;
+  imgObj = null;
+  cropStart = cropEnd = null;
+  clearCanvasBackground();
+  recognizeBtn.disabled = true;
+  removeBtn.disabled = true;
+  rawOut.value = '';
+  textOut.value = '';
+});
+
+// load model button (chooses pipeline automatically)
+loadBtn.addEventListener('click', async () => {
+  const modelId = modelSelect.value;
+  loadBtn.disabled = true;
+  progress.textContent = `Loading model "${modelId}" — this may be large.`;
+  progressBar.style.display = 'inline-block';
+  progressFill.style.width = '0%';
+
+  // decide pipeline task: Donut -> document-question-answering; otherwise use image-to-text
+  pipelineTask = modelId.toLowerCase().includes('donut') ? 'document-question-answering' : 'image-to-text';
+
+  try {
+    // load pipeline; Transformers.js supports progress_callback in many builds
+    pipe = await pipeline(pipelineTask, modelId, {
+      // progress_callback is best-effort — not guaranteed in all CDN versions,
+      // but if present it will receive an object like {progress: 0.8}
+      progress_callback: (p) => {
+        if (p && p.progress !== undefined) {
+          progressFill.style.width = `${Math.round(p.progress*100)}%`;
+        }
+      }
+    });
+    progress.textContent = `Model Loaded: ${modelId} (task: ${pipelineTask})`;
+    progressFill.style.width = '100%';
+    progressBar.style.display = 'none'; // Hide the progress bar once the model is loaded
+    recognizeBtn.disabled = !currentDataUrl;
+  } catch (err) {
+    console.error(err);
+    progress.textContent = 'Error loading model: ' + (err?.message || err);
+    progressBar.style.display = 'none'; // Hide the progress bar in case of error
+    loadBtn.disabled = false;
+  }
+});
+
+// Recognize button
+recognizeBtn.addEventListener('click', async () => {
+  if (!pipe) { alert('Load model first'); return; }
+  if (!currentDataUrl) { alert('Upload or load an image first'); return; }
+
+  // Disable the recognize button while OCR is running
+  recognizeBtn.disabled = true;
+
+  // Build input — if the user selected a crop, crop canvas -> use that dataURL
+  let inputDataUrl;
+  const cropRect = getCropRect();
+  if (cropRect && cropRect[2] > 4 && cropRect[3] > 4) {
+    // create temporary canvas with the cropped region
+    const [x,y,w,h] = cropRect;
+    const tmp = document.createElement('canvas');
+    tmp.width = Math.max(1, Math.round(w));
+    tmp.height = Math.max(1, Math.round(h));
+    const tctx = tmp.getContext('2d');
+    // draw the corresponding region from displayed canvas into tmp
+    tctx.drawImage(canvas, x, y, w, h, 0, 0, tmp.width, tmp.height);
+    inputDataUrl = tmp.toDataURL('image/png');
+  } else {
+    // no crop: use original data URL or canvas capture
+    // prefer currentDataUrl if it's a proper URL or data URL; otherwise take canvas snapshot
+    if (typeof currentDataUrl === 'string' && (currentDataUrl.startsWith('data:') || currentDataUrl.startsWith('http'))) {
+      inputDataUrl = currentDataUrl;
+    } else {
+      inputDataUrl = canvas.toDataURL('image/png');
+    }
+  }
+
+  progress.textContent = 'Running OCR...';
+  rawOut.value = '';
+  textOut.value = '';
+  try {
+    let out;
+    if (pipelineTask === 'document-question-answering') {
+      // Donut-style models expect an image + question prompt.
+      // We ask Donut to transcribe all visible text in the image. Preserve line breaks.
+      const question = 'Please transcribe all visible text in the image. Preserve line breaks.';
+      out = await pipe(inputDataUrl, question);
+      // Donut/document-question-answering typically returns an array like [{ answer: '...' }]
+      // Normalize into a string:
+      let text = '';
+      if (Array.isArray(out)) {
+        if (out.length > 0 && out[0]?.answer) {
+          // join answers if multiple
+          text = out.map(o => o.answer ?? '').join('\n');
+        } else if (typeof out[0] === 'string') {
+          text = out.join('\n');
+        } else {
+          text = JSON.stringify(out, null, 2);
+        }
+      } else if (typeof out === 'object' && out?.answer) {
+        text = out.answer;
+      } else {
+        text = String(out);
+      }
+      rawOut.value = JSON.stringify(out, null, 2);
+      textOut.value = text;
+    } else {
+      // image-to-text (TrOCR, vit-gpt2 etc.)
+      out = await pipe(inputDataUrl, { max_new_tokens: 512 });
+      rawOut.value = JSON.stringify(out, null, 2);
+      const text = out?.[0]?.generated_text ?? out?.[0]?.text ?? (Array.isArray(out) ? out.join('\n') : String(out));
+      textOut.value = text;
+    }
+    progress.textContent = 'Done';
+  } catch (err) {
+    console.error(err);
+    let msg = 'Inference error: ' + (err?.message || err);
+    if ((err?.message || '').includes('Unsupported input type: object')) {
+      msg += '\n\nSuggestion: pass a data URL string, a <canvas> element, or a URL string to the pipeline — not a raw Image DOM object.';
+    }
+    // If model is Donut and output seems short, remind user about cropping vs using doc model
+    if (pipelineTask !== 'document-question-answering' && textOut.value && textOut.value.length < 8) {
+      msg += '\n\nHint: TrOCR is tuned for single-line text — crop a single line or use a Donut document model from the model list for full screenshots.';
+    }
+    progress.textContent = msg;
+  } finally {
+    // Re-enable the recognize button after OCR is complete
+    recognizeBtn.disabled = false;
+  }
+});
+
+// Copy Text button
+copyTextBtn.addEventListener('click', () => {
+  const text = textOut.value;
+  if (text) {
+    navigator.clipboard.writeText(text).then(() => {
+      progress.textContent = 'Text copied to clipboard!';
+    }).catch(err => {
+      console.error('Failed to copy text: ', err);
+      progress.textContent = 'Failed to copy text to clipboard.';
+    });
+  } else {
+    progress.textContent = 'No text to copy.';
+  }
+});
+
+// initialize canvas background
+clearCanvasBackground();
+</script>
+</body>
+</html>
