@@ -1,31 +1,52 @@
-// worker.js  (module worker - must be loaded with Worker(..., { type: 'module' }))
+// worker.js  (module worker - use Worker(..., { type: 'module' }))
 
-// Dynamically import the Transformers.js ESM entry from the CDN and handle multiple export shapes.
-// Using dynamic import ensures we never call importScripts on an ESM bundle.
-const transformersModule = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+// Import the ESM build explicitly for more consistent exports
+let transformersModule;
+try {
+  transformersModule = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.esm.js');
+} catch (err) {
+  // fallback: try package entrypoint (less preferred)
+  try {
+    transformersModule = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+  } catch (err2) {
+    self.postMessage({ type: 'error', message: 'Failed to import transformers module: ' + (err2?.message || err?.message || err) });
+    throw err2 || err;
+  }
+}
 
-// Try several export shapes so code works across CDN variations:
-const pipeline = transformersModule.pipeline ?? transformersModule.default?.pipeline ?? (transformersModule.transformers && transformersModule.transformers.pipeline);
-const env = transformersModule.env ?? transformersModule.default?.env ?? (transformersModule.transformers && transformersModule.transformers.env);
+// Try common export shapes
+const pipeline = transformersModule.pipeline ?? transformersModule.default?.pipeline ?? transformersModule.transformers?.pipeline;
+const env = transformersModule.env ?? transformersModule.default?.env ?? transformersModule.transformers?.env;
 
+// If pipeline isn't found, abort with a helpful message
 if (!pipeline) {
-  self.postMessage({ type: 'error', message: 'Failed to load Transformers.js pipeline export.' });
+  self.postMessage({ type: 'error', message: 'transformers.pipeline not found. Module exports: ' + Object.keys(transformersModule).join(', ') });
   throw new Error('pipeline export missing from transformers module');
 }
 
-// Force models to be fetched from the Hugging Face Hub (not from /models on your site)
+// Configure env so models are fetched from Hugging Face Hub rather than /models on your site
 if (env) {
-  env.localModelPath = null; // disable local /models lookups
-  env.remoteModelsPath = 'https://huggingface.co/'; // ensure remote files come from Hugging Face Hub
+  env.localModelPath = null;
+  env.remoteModelsPath = 'https://huggingface.co/';
+} else {
+  self.postMessage({ type: 'progress', message: 'Warning: env not exported; using library defaults (may try /models/...).' });
 }
 
-// State
 let pipe = null;
 let pipelineTask = 'image-to-text';
 
-// Load model (called from main thread)
+// Load a model (invoked from main thread)
 async function loadModel(modelId) {
+  if (!modelId) {
+    self.postMessage({ type: 'error', message: 'No modelId provided to loadModel' });
+    return;
+  }
+
+  modelId = String(modelId).trim();
   pipelineTask = modelId.toLowerCase().includes('donut') ? 'document-question-answering' : 'image-to-text';
+
+  self.postMessage({ type: 'progress', message: `Starting load of ${modelId}...`, progress: 0 });
+
   try {
     pipe = await pipeline(pipelineTask, modelId, {
       progress_callback: (p) => {
@@ -34,14 +55,16 @@ async function loadModel(modelId) {
         }
       }
     });
+
     self.postMessage({ type: 'progress', message: `Model Loaded: ${modelId} (task: ${pipelineTask})`, progress: 1 });
   } catch (err) {
     console.error(err);
-    self.postMessage({ type: 'error', message: 'Error loading model: ' + (err?.message || err) });
+    // Include the modelId in the message to help debugging
+    self.postMessage({ type: 'error', message: 'Error loading model: ' + ((err?.message) || err) + '\nmodelId: ' + modelId });
   }
 }
 
-// Run OCR / inference (called from main thread)
+// Run OCR / inference (invoked from main thread)
 async function performOcr(inputDataUrl) {
   if (!pipe) {
     self.postMessage({ type: 'error', message: 'Load model first' });
@@ -77,9 +100,10 @@ async function performOcr(inputDataUrl) {
   }
 }
 
-// Receive commands from main thread
-self.onmessage = (event) => {
+// Listen for messages from the main script
+self.onmessage = function(event) {
   const { type, modelId, inputDataUrl } = event.data;
+
   if (type === 'loadModel') {
     loadModel(modelId);
   } else if (type === 'runOcr') {
