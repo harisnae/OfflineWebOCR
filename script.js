@@ -25,9 +25,10 @@ let cropEnd = null;
 // const worker = new Worker('worker.js');
 
 // Robust: resolves worker path relative to this module script
-// const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+
 // Create a classic worker (worker.js will load the UMD bundle with importScripts)
-const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'classic' });
+// const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'classic' });
 
 
 // Listen for messages from the worker
