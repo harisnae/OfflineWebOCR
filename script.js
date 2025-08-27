@@ -22,14 +22,7 @@ let cropStart = null;
 let cropEnd = null;
 
 // Create a new worker
-// const worker = new Worker('worker.js');
-
-// Robust: resolves worker path relative to this module script
-const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-
-// Create a classic worker (worker.js will load the UMD bundle with importScripts)
-// const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'classic' });
-
+const worker = new Worker('worker.js', { type: 'module' });
 
 // Listen for messages from the worker
 worker.onmessage = function(event) {
@@ -137,7 +130,7 @@ imageInput.addEventListener('change', (e) => {
 // Sample screenshot (use a multi-line sample)
 sampleBtn.addEventListener('click', () => {
   // small sample screenshot (replaceable)
-  const url = 'https://raw.githubusercontent.com/harisnae/OfflineWebOCR/refs/heads/main/sample_screenshot.png'; // documents sample
+  const url = 'https://raw.githubusercontent.com/Xenova/transformers.js/main/assets/invoice.png'; // documents sample
   imgObj = new Image();
   imgObj.crossOrigin = 'anonymous';
   imgObj.onload = () => {
