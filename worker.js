@@ -1,5 +1,9 @@
 import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js';
 
+// Ensures models are fetched from Hugging Face Hub, not from your GitHub Pages /models directory
+env.localModelPath = null;  
+env.remoteModelsPath = 'https://huggingface.co/';  
+
 let pipe = null;
 let pipelineTask = 'image-to-text';
 
