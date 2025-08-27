@@ -1,8 +1,21 @@
-import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+// worker.js  (classic worker version — use with Worker(..., { type: 'classic' }))
 
-// Ensures models are fetched from Hugging Face Hub, not from your GitHub Pages /models directory
-env.localModelPath = null;  
-env.remoteModelsPath = 'https://huggingface.co/';  
+// Load the UMD build into the worker global scope
+importScripts('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js');
+
+// The UMD bundle exposes a global `transformers` object (on self/globalThis)
+const transformers = globalThis.transformers || self.transformers;
+if (!transformers) {
+  self.postMessage({ type: 'error', message: 'Failed to load transformers library in worker.' });
+  // bail out — nothing else will work
+}
+
+// Extract pipeline and env from the global object
+const { pipeline, env } = transformers;
+
+// Configure where models are fetched from — use Hugging Face Hub instead of local /models
+env.localModelPath = null;
+env.remoteModelsPath = 'https://huggingface.co/';
 
 let pipe = null;
 let pipelineTask = 'image-to-text';
@@ -57,9 +70,7 @@ async function performOcr(inputDataUrl) {
     if ((err?.message || '').includes('Unsupported input type: object')) {
       msg += '\n\nSuggestion: pass a data URL string, a <canvas> element, or a URL string to the pipeline — not a raw Image DOM object.';
     }
-    if (pipelineTask !== 'document-question-answering' && textOut.value && textOut.value.length < 8) {
-      msg += '\n\nHint: TrOCR is tuned for single-line text — crop a single line or use a Donut document model from the model list for full screenshots.';
-    }
+    // Worker cannot access DOM; keep messaging the error to main thread
     self.postMessage({ type: 'error', message: msg });
   }
 }
